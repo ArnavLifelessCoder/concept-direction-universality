@@ -27,7 +27,7 @@ The validator must pass before anything else runs.
 
 ---
 
-## Step 1 — Consider expanding the two starved domains
+## Step 1 — Know which domains are underpowered
 
 Before spending GPU hours, note what the controls are likely to find:
 
@@ -47,15 +47,17 @@ is very noisy. **Math carries the paper's headline honesty claim.** If its
 within-domain reliability is near zero, its "near-orthogonality" is
 unfalsifiable rather than fragmented, and the claim has to go.
 
-Expanding math is cheap and does not need a GPU:
+**Expanding math is not currently possible with the existing tooling.**
+`scripts/add_math_honesty_pairs.py` appends a fixed list of 30 hand-written
+pairs that are already merged, so it adds zero; there is no `--target` flag:
 
 ```bash
-python scripts/add_math_honesty_pairs.py --target 200
-python scripts/validate_prompt_pairs.py --strict
+python scripts/add_math_honesty_pairs.py --check   # WOULD add 0 ... (had 59)
 ```
 
-Doing this *before* extraction avoids re-extracting later. It is optional only
-if you are willing to report that math is under-powered.
+Genuinely expanding the domain means authoring roughly 140 new math honesty
+pairs. Until that happens, math stays at 59 and the reliability gate in Step 3
+decides whether its near-orthogonality claim is reportable at all.
 
 ---
 
@@ -63,12 +65,16 @@ if you are willing to report that math is under-powered.
 
 One session per few models. Small models need no quantization; 3B+ run 4-bit.
 
+`batch_extract` takes `--concept` **singular**, so loop over concepts:
+
 ```bash
-python -m src.extraction.batch_extract \
-    --model qwen-2.5-3b-instruct \
-    --concepts honesty refusal \
-    --max-pairs-per-domain 200 \
-    --output results/activations/
+for c in honesty refusal; do
+  python -m src.extraction.batch_extract \
+      --model qwen-2.5-3b-instruct \
+      --concept "$c" \
+      --max-pairs-per-domain 200 \
+      --output results/activations/
+done
 ```
 
 Models, in priority order (stop wherever the budget runs out — the analysis
@@ -170,18 +176,33 @@ Sections whose prose is already written and does not depend on the re-run:
 Related Work, the two new Methods subsections, the honesty construct-validity
 paragraph, the base-vs-instruct scoping, and Limitations placement.
 
-Results text still to write:
+All four Results sections are already scaffolded with `\PH{}` placeholders,
+so the remaining work is filling numbers rather than deciding structure:
 
-- §5.x **Controls** (`sec:results-controls`) — reliability, LODO, gap. Referenced
-  from the introduction already.
-- §5.x **Subspace** (`sec:subspace` results half) — the rank-2 answer.
-- §5.x **Replication** (`sec:results-replication`) — the scale and family axes,
-  referenced from the RLHF section already.
-- Rewrite §5.3 steering against the sweep.
+- §5.1 `sec:results-controls` — reliability, LODO, gap. **Write this first**; it
+  gates what the rest of Section 5 may claim.
+- `sec:results-subspace` — the rank-2 answer for Reviewer 2.
+- `sec:results-steering` — the dose-response rewrite.
+- `sec:results-replication` — the scale and family axes.
 
-Those four `\label`s are referenced in the current text, so **the paper will not
-compile with correct cross-references until they exist.** That is deliberate —
-it prevents shipping a draft that silently omits them.
+Find every remaining placeholder with:
+
+```bash
+grep -n '\\PH{' paper/main.tex
+```
+
+Each cluster carries a `\phnote` naming the JSON field that fills it. Seven
+commented `BRANCH` blocks say what to write if a result overturns the current
+claim, including which text to delete rather than soften.
+
+The steering figure is wrapped in `\IfFileExists`, so the document compiles
+before it exists and picks it up once generated:
+
+```bash
+python -m src.visualization.steering_sweep_plot \
+    --report results/steering_sweep_refusal_qwen-2.5-3b-instruct.json \
+    --output paper/figures/fig_steering_sweep.pdf
+```
 
 ---
 

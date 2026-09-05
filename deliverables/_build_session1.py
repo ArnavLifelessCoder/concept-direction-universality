@@ -1,0 +1,474 @@
+"""Generate the Kaggle session-1 notebook as valid .ipynb JSON."""
+import json
+from pathlib import Path
+
+cells = []
+
+
+def md(text):
+    cells.append({
+        "cell_type": "markdown",
+        "metadata": {},
+        "source": text.strip("\n").split("\n"),
+    })
+
+
+def code(text):
+    cells.append({
+        "cell_type": "code",
+        "execution_count": None,
+        "metadata": {},
+        "outputs": [],
+        "source": text.strip("\n").split("\n"),
+    })
+
+
+# ---------------------------------------------------------------- header
+md(r"""
+# Session 1 — Reliability Gate and Corrected Baseline
+
+**Goal of this session:** produce the numbers that decide what the resubmitted
+paper is allowed to claim. Nothing else in the revision can be written until
+these exist.
+
+By the end you will have answered three questions:
+
+1. **Which layers carry a measurable concept direction at all?**
+   (within-domain split-half reliability + permutation null)
+2. **What is the honesty/refusal cosine once the domain is removed from the
+   global direction it is compared against?** (leave-one-domain-out)
+3. **Is the cross-domain cosine actually below the within-domain noise floor?**
+   (matched-sample-size gap — the real fragmentation measure)
+
+Question 2 is the one that invalidated the previous submission's headline
+number. Four mutually orthogonal directions each score `1/sqrt(4) = 0.50`
+against their own normalized sum, and the paper reported a minimum of **0.522**
+against exactly such a pooled direction.
+
+---
+
+### Before you run anything
+
+| Setting | Value |
+|---|---|
+| Accelerator | **GPU T4 x2** |
+| Internet | **On** (needed to clone and to download models) |
+| Persistence | Files only |
+| Expected runtime | ~2.5-4 h |
+
+**The `reviewer-revisions` branch must be pushed to GitHub**, or the clone in
+the next cell will fail. From your machine:
+
+```
+git push -u origin reviewer-revisions
+```
+
+> **Do not** plan to keep the activation tensors between sessions. They are
+> many GB. Step 3 runs in this same session and consumes them; only the small
+> JSON reports are saved at the end.
+""")
+
+# ---------------------------------------------------------------- setup
+md(r"""
+## 0. Setup
+
+Clones the revision branch and installs dependencies. Safe to re-run: the
+clone is skipped if the directory already exists.
+""")
+
+code(r'''
+import os, subprocess, sys, time
+from pathlib import Path
+
+BRANCH = "reviewer-revisions"
+REPO_URL = "https://github.com/ArnavLifelessCoder/concept-direction-universality.git"
+REPO = Path("/kaggle/working/concept-directions")
+
+if not REPO.exists():
+    subprocess.check_call(
+        ["git", "clone", "--branch", BRANCH, "--single-branch", REPO_URL, str(REPO)]
+    )
+os.chdir(REPO)
+sys.path.insert(0, str(REPO))
+
+# Confirm we are on the revision branch and that the new modules are present.
+head = subprocess.check_output(["git", "rev-parse", "--abbrev-ref", "HEAD"], text=True).strip()
+print("branch:", head)
+assert head == BRANCH, f"expected {BRANCH}, got {head}"
+for mod in ["src/analysis/geometry_controls.py",
+            "src/analysis/subspace.py",
+            "src/analysis/run_replication.py"]:
+    assert Path(mod).exists(), f"missing {mod} - is the branch pushed and up to date?"
+print("revision modules present")
+''')
+
+code(r'''
+def install(*pkgs):
+    subprocess.check_call([sys.executable, "-m", "pip", "install", "-q", *pkgs])
+
+install("transformers>=4.40.0", "accelerate", "bitsandbytes",
+        "scikit-learn", "einops", "datasets")
+
+import torch
+print("torch", torch.__version__, "| CUDA", torch.cuda.is_available())
+if torch.cuda.is_available():
+    for i in range(torch.cuda.device_count()):
+        p = torch.cuda.get_device_properties(i)
+        print(f"  GPU{i}: {p.name}, {p.total_memory/1e9:.1f} GB")
+else:
+    raise SystemExit("No GPU. Set Accelerator to GPU T4 x2 and restart.")
+''')
+
+code(r'''
+PY = [sys.executable, "-m"]
+
+def run(cmd, label=None):
+    """Run a subprocess, stream output, and report wall time."""
+    print(">>>", " ".join(str(c) for c in cmd), flush=True)
+    t0 = time.time()
+    subprocess.check_call([str(c) for c in cmd])
+    dt = time.time() - t0
+    print(f"<<< {label or 'done'} in {dt/60:.1f} min\n", flush=True)
+    return dt
+''')
+
+# ---------------------------------------------------------------- step 0
+md(r"""
+## 1. Rebuild the gitignored data
+
+`data/truthfulqa/` and `data/prompt_pairs_promptbased/` are not committed, so a
+fresh clone has to regenerate them. The validator gate must pass before any
+GPU time is spent.
+""")
+
+code(r'''
+run([sys.executable, "scripts/convert_truthfulqa.py"], "convert truthfulqa")
+run([sys.executable, "scripts/merge_truthfulqa_into_honesty.py"], "merge honesty")
+run([sys.executable, "scripts/build_refusal_promptbased.py",
+     "--max-per-domain", "120"], "build prompt-based refusal")
+
+# --strict makes any warning a non-zero exit, so this is a real gate.
+run([sys.executable, "scripts/validate_prompt_pairs.py", "--strict"], "validate")
+''')
+
+code(r'''
+# Pair counts per domain. These set the reliability floor for the whole study:
+# a split-half estimate uses half of these to fit a direction in d_model dims.
+import json
+from pathlib import Path
+
+for concept, sub in [("honesty", "honesty"), ("refusal", "refusal_new")]:
+    print(f"\n{concept}:")
+    for f in sorted(Path(f"data/prompt_pairs/{sub}").glob("*.jsonl")):
+        n = sum(1 for _ in open(f, encoding="utf-8"))
+        flag = "  <-- UNDERPOWERED" if n < 80 else ""
+        print(f"  {f.stem:<20} {n:>5}   split-half n={n//2:>3}{flag}")
+''')
+
+md(r"""
+### Known exposure: the `math` domain cannot be expanded from here
+
+`math` carries the paper's headline honesty claim ("near-orthogonal to all
+other domains") on **59 pairs**, so each split-half direction is fit from ~29
+samples in 2048 dimensions.
+
+`scripts/add_math_honesty_pairs.py` does **not** help: it appends a fixed list
+of 30 hand-written pairs that are already merged, so it adds zero. There is no
+`--target` flag. Genuinely expanding the domain means authoring roughly 140 new
+math honesty pairs, which is a data task for outside this notebook.
+
+So this session proceeds with math as-is, and **the reliability gate in
+step 4 decides its fate**:
+
+- reliability comfortably above the floor -> the claim stands, report *n*
+  alongside it;
+- reliability at or below the floor -> the near-orthogonality claim is not
+  fragmentation but absence of measurement. **Delete it** from the abstract,
+  the introduction, and §5.3 rather than hedging, and state that the domain was
+  underpowered.
+
+The next cell only confirms the situation; it writes nothing.
+""")
+
+code(r'''
+run([sys.executable, "scripts/add_math_honesty_pairs.py", "--check"],
+    "math pair check (expect: WOULD add 0)")
+
+n = sum(1 for _ in open("data/prompt_pairs/honesty/math.jsonl", encoding="utf-8"))
+print(f"\nmath: {n} pairs -> split-half n={n//2} against d_model=2048")
+print("Watch this domain's reliability in step 4.")
+''')
+
+# ---------------------------------------------------------------- step 2
+md(r"""
+## 2. Extraction (GPU)
+
+Both concepts on the primary base/instruct pair. This is the only GPU-heavy
+part of the session.
+
+`--max-pairs-per-domain 200` caps every domain so the pooled global direction
+is not dominated by the largest one (threat T4). Note `batch_extract` takes
+`--concept` singular, so concepts are looped.
+
+Rough cost at 4-bit on a T4: **~20-30 min per model per concept**, so budget
+1.5-2 h for the four combinations below.
+""")
+
+code(r'''
+MODELS_TO_EXTRACT = ["qwen-2.5-3b-instruct", "qwen-2.5-3b"]
+CONCEPTS = ["honesty", "refusal"]
+
+total = 0.0
+for model in MODELS_TO_EXTRACT:
+    for concept in CONCEPTS:
+        total += run(
+            PY + ["src.extraction.batch_extract",
+                  "--model", model,
+                  "--concept", concept,
+                  "--max-pairs-per-domain", "200",
+                  "--output", "results/activations/"],
+            f"extract {model}/{concept}",
+        )
+print(f"TOTAL EXTRACTION: {total/60:.1f} min")
+''')
+
+code(r'''
+# Confirm the cache looks right before spending analysis time on it.
+from collections import Counter
+acts = sorted(Path("results/activations").glob("*.pt"))
+print(f"{len(acts)} activation files, "
+      f"{sum(f.stat().st_size for f in acts)/1e9:.2f} GB")
+counts = Counter("_".join(f.stem.split("_")[1:4]) for f in acts)
+for k, v in sorted(counts.items())[:10]:
+    print(f"  {k}: {v}")
+assert acts, "No activations were written - check the extraction logs above."
+''')
+
+# ---------------------------------------------------------------- step 3
+md(r"""
+## 3. The gate — controls and subspace analysis
+
+CPU-bound and fast (a few minutes per model/concept). This is the cell whose
+output decides the paper.
+
+`--reliability-floor 0.2` marks any layer whose within-domain split-half
+cosine falls at or below 0.2 as **uninterpretable**; those layers are excluded
+from the aggregates, so a layer where the direction is noise cannot be reported
+as "fragmented".
+""")
+
+code(r'''
+run(PY + ["src.analysis.run_replication",
+          "--models", *MODELS_TO_EXTRACT,
+          "--concepts", *CONCEPTS,
+          "--activations", "results/activations",
+          "--output", "results/replication",
+          "--reliability-floor", "0.2",
+          "--n-splits", "200",
+          "--n-permutations", "500"],
+    "controls + subspace")
+''')
+
+# ---------------------------------------------------------------- read gate
+md(r"""
+## 4. Read the gate
+
+Read these in order. Each one can change what the next is allowed to say.
+""")
+
+code(r'''
+import json, numpy as np
+from pathlib import Path
+
+REP = Path("results/replication")
+summary = json.loads((REP / "replication_summary.json").read_text())
+
+print("=" * 78)
+print("CROSS-MODEL SUMMARY".center(78))
+print("=" * 78)
+print(f"{'model':<26}{'concept':<10}{'LODO':>8}{'within':>8}{'gap':>8}{'rank2':>8}{'layers':>10}")
+print("-" * 78)
+for r in summary["rows"]:
+    print(f"{r['model']:<26}{r['concept']:<10}"
+          f"{r['lodo_cosine_mean']:>8.3f}{r['within_reliability_mean']:>8.3f}"
+          f"{r['fragmentation_gap_mean']:>8.3f}{r['lodo_subspace_rank2_mean']:>8.3f}"
+          f"{r['n_interpretable']:>5}/{r['n_layers']:<4}")
+''')
+
+code(r'''
+# ---- Q1: which layers carry a direction at all? ----------------------------
+for f in sorted(REP.glob("replication_*.json")):
+    if f.name == "replication_summary.json":
+        continue
+    rep = json.loads(f.read_text())
+    s = rep["summary"]
+    print(f"\n### {rep['model']} / {rep['concept']}")
+    print(f"  interpretable layers : {s['n_layers_interpretable']}/{s['n_layers_total']}")
+    print(f"  gated (noise) layers : {s['gated_layers']}")
+    print(f"  within-domain reliability: mean {s['within_domain_reliability']['mean']:.3f} "
+          f"(min {s['within_domain_reliability']['min']:.3f}, "
+          f"max {s['within_domain_reliability']['max']:.3f})")
+
+    # Per-domain reliability at the most and least reliable interpretable layer.
+    ctrl = rep["controls"]
+    interp = [str(l) for l in s["interpretable_layers"]]
+    if interp:
+        worst = min(interp, key=lambda l: ctrl[l]["within_mean"])
+        print(f"  per-domain reliability @ layer {worst} (weakest interpretable):")
+        for dom, v in sorted(ctrl[worst]["within_domain"].items()):
+            warn = "  <-- BELOW FLOOR" if v["mean"] <= 0.2 else ""
+            print(f"      {dom:<20} {v['mean']:.3f}  (n/half={v['n_per_half']}){warn}")
+''')
+
+md(r"""
+**How to act on the above**
+
+- If a domain's reliability is at or below 0.2, its direction is not measured
+  at that layer. Any claim about its *angle* is unsupported.
+- **Specifically for `math`:** if it is below the floor, delete the
+  "near-orthogonal to all other domains" claim from the abstract, the
+  introduction, and §5.3. Do not hedge it. Say the domain was underpowered and
+  state what was done about it.
+""")
+
+code(r'''
+# ---- Q2: the corrected baseline (LODO vs pooled) ---------------------------
+print("Previously reported pooled-global minima:")
+print("  honesty            0.522   <-- vs 0.500 for four ORTHOGONAL directions")
+print("  refusal (prompt)   0.837")
+print("  refusal (response) 0.854\n")
+
+for f in sorted(REP.glob("replication_*.json")):
+    if f.name == "replication_summary.json":
+        continue
+    rep = json.loads(f.read_text())
+    s = rep["summary"]
+    lodo = s["lodo_cosine"]
+    print(f"{rep['model']:<26} {rep['concept']:<9} "
+          f"LODO mean {lodo['mean']:.3f}  min {lodo['min']:.3f}  max {lodo['max']:.3f}")
+
+print("""
+Interpretation:
+  LODO can only be LOWER than pooled. The question is how much.
+  - honesty LODO near 0      -> genuine fragmentation; the claim strengthens.
+  - refusal LODO still high  -> universality survives the correction.
+  - refusal LODO drops a lot -> the universality claim weakens too. Report it.
+""")
+''')
+
+code(r'''
+# ---- Q3: fragmentation against the noise floor -----------------------------
+# This is the measure that actually answers the research question.
+for f in sorted(REP.glob("replication_*.json")):
+    if f.name == "replication_summary.json":
+        continue
+    rep = json.loads(f.read_text())
+    s, ctrl = rep["summary"], rep["controls"]
+    gap = s["fragmentation_gap"]
+    print(f"\n{rep['model']} / {rep['concept']}")
+    print(f"  within (ceiling) {s['within_domain_reliability']['mean']:.3f}"
+          f"   cross (matched n) {s['cross_domain_cosine_matched']['mean']:.3f}")
+    print(f"  GAP  mean {gap['mean']:.3f}   min {gap['min']:.3f}   max {gap['max']:.3f}")
+
+    # Layer profile of the gap, over interpretable layers only.
+    layers = sorted(s["interpretable_layers"])
+    if layers:
+        prof = [(l, ctrl[str(l)]["gap"]) for l in layers]
+        peak = max(prof, key=lambda t: t[1])
+        print(f"  largest gap at layer {peak[0]}: {peak[1]:.3f}")
+
+print("""
+Interpretation:
+  gap ~ 0     -> directions from different domains agree as well as two
+                 estimates of the SAME domain. No detectable fragmentation.
+  gap large   -> fragmentation survives the noise floor. This is the real
+                 positive result, and it is what the paper should report.
+""")
+''')
+
+code(r'''
+# ---- Bonus: the rank-2 question (Reviewer 2) -------------------------------
+# Decisive number is the LODO subspace projection vs its k/d chance baseline,
+# not the spectrum (rank 2 of 4 directions captures a lot by construction).
+for f in sorted(REP.glob("replication_honesty_*.json")):
+    rep = json.loads(f.read_text())
+    sub, s = rep["subspace"], rep["summary"]
+    layers = sorted(s["interpretable_layers"])
+    if not layers:
+        continue
+    print(f"\n{rep['model']} / honesty  (LODO subspace projection)")
+    print(f"  {'layer':>6}{'rank1':>9}{'rank2':>9}{'rank3':>9}{'chance(k=2)':>13}")
+    for l in layers[::max(1, len(layers)//8)]:
+        pr = sub[str(l)]["lodo"]["per_rank"]
+        r1 = pr.get("1", {}).get("mean", float("nan"))
+        r2 = pr.get("2", {}).get("mean", float("nan"))
+        r3 = pr.get("3", {}).get("mean", float("nan"))
+        ch = pr.get("2", {}).get("chance", float("nan"))
+        print(f"  {l:>6}{r1:>9.3f}{r2:>9.3f}{r3:>9.3f}{ch:>13.5f}")
+
+print("""
+Interpretation:
+  rank2 high while rank1 low  -> honesty is LOW-RANK, not fragmented. The
+      finding reframes: representation engineering's rank-1 assumption is what
+      fails, not honesty. This confirms and extends Burger et al. (2024) and is
+      a better paper than the one that was rejected.
+  rank2 near chance           -> no shared subspace; fragmentation survives the
+      most generous reading available to it.
+""")
+''')
+
+# ---------------------------------------------------------------- save
+md(r"""
+## 5. Save the reports
+
+Only the small JSONs are kept. Download `replication_reports.zip` from the
+notebook output, unzip into `results/replication/` locally, and fill the
+`\PH{}` placeholders in `paper/main.tex` (`grep -n '\\PH{' paper/main.tex`).
+""")
+
+code(r'''
+import shutil
+
+OUT = Path("/kaggle/working/out")
+OUT.mkdir(parents=True, exist_ok=True)
+for f in REP.glob("*.json"):
+    shutil.copy(f, OUT / f.name)
+
+archive = shutil.make_archive("/kaggle/working/replication_reports", "zip", OUT)
+size = Path(archive).stat().st_size
+print(f"{archive}  ({size/1e6:.2f} MB)")
+for f in sorted(OUT.iterdir()):
+    print("  ", f.name)
+''')
+
+md(r"""
+### Next session
+
+With the gate read, session 2 runs the steering sweeps (`run_steering_sweep`
+for refusal and honesty) and, if quota allows, extraction for the scale ladder
+(`qwen-2.5-0.5b`, `1.5b`, `7b`) and family set (`llama-3.2-3b`, `gemma-2-2b`).
+See `docs/rerun_runbook.md` steps 4-6.
+
+Llama models are gated on Hugging Face: add an `HF_TOKEN` secret in Kaggle
+before that session.
+""")
+
+nb = {
+    "cells": cells,
+    "metadata": {
+        "kernelspec": {
+            "display_name": "Python 3",
+            "language": "python",
+            "name": "python3",
+        },
+        "language_info": {"name": "python", "version": "3.10"},
+        "accelerator": "GPU",
+    },
+    "nbformat": 4,
+    "nbformat_minor": 5,
+}
+
+out = Path("deliverables/session1_reliability_gate.ipynb")
+out.parent.mkdir(parents=True, exist_ok=True)
+out.write_text(json.dumps(nb, indent=1), encoding="utf-8")
+print(f"wrote {out} ({len(cells)} cells)")
