@@ -451,3 +451,69 @@ class TestRunSubspaceAnalysis:
         assert res["layer"] == 12
         assert "spectrum" in res and "principal_angles" in res and "lodo" in res
         assert len(res["principal_angles"]) == 6
+
+
+# ============================================================
+# Replication driver — reliability gating
+# ============================================================
+
+class TestReliabilityGating:
+    """The gate exists so noise layers are never reported as fragmented."""
+
+    def _controls(self, within_by_layer):
+        return {
+            layer: {
+                "within_mean": w,
+                "lodo_mean": 0.9,
+                "gap": 0.05,
+                "cross_domain_mean": 0.85,
+            }
+            for layer, w in within_by_layer.items()
+        }
+
+    def test_layers_below_floor_are_gated(self):
+        from src.analysis.run_replication import summarize_model_concept
+        s = summarize_model_concept(
+            self._controls({0: 0.02, 1: 0.05, 2: 0.90, 3: 0.85}), {}, 0.2,
+        )
+        assert s["gated_layers"] == [0, 1]
+        assert s["interpretable_layers"] == [2, 3]
+        assert s["n_layers_interpretable"] == 2
+
+    def test_aggregates_exclude_gated_layers(self):
+        """A noise layer must not drag the reported cosine down."""
+        from src.analysis.run_replication import summarize_model_concept
+        controls = self._controls({0: 0.01, 1: 0.9})
+        controls[0]["lodo_mean"] = 0.0   # noise layer scores ~0
+        controls[1]["lodo_mean"] = 0.95
+        s = summarize_model_concept(controls, {}, 0.2)
+        assert s["lodo_cosine"]["mean"] == pytest.approx(0.95)
+
+    def test_nan_reliability_is_gated(self):
+        from src.analysis.run_replication import summarize_model_concept
+        s = summarize_model_concept(self._controls({0: float("nan"), 1: 0.8}), {}, 0.2)
+        assert s["gated_layers"] == [0]
+
+    def test_all_layers_gated_yields_nan_not_crash(self):
+        from src.analysis.run_replication import summarize_model_concept
+        s = summarize_model_concept(self._controls({0: 0.01, 1: 0.02}), {}, 0.2)
+        assert s["n_layers_interpretable"] == 0
+        assert np.isnan(s["lodo_cosine"]["mean"])
+
+    def test_base_instruct_delta_is_instruct_minus_base(self):
+        from src.analysis.run_replication import build_cross_model_table
+        def rep(model, instruct, lodo):
+            return {"model": model, "concept": "honesty", "is_instruct": instruct,
+                    "d_model": 896, "n_layers": 24,
+                    "summary": {"n_layers_interpretable": 20,
+                                "lodo_cosine": {"mean": lodo, "min": lodo, "max": lodo},
+                                "within_domain_reliability": {"mean": 0.8},
+                                "fragmentation_gap": {"mean": 0.1},
+                                "lodo_subspace_rank2": {"mean": 0.5}}}
+        table = build_cross_model_table([
+            rep("qwen-2.5-0.5b", False, 0.70),
+            rep("qwen-2.5-0.5b-instruct", True, 0.75),
+        ])
+        assert len(table["base_vs_instruct"]) == 1
+        # positive delta => alignment consolidates
+        assert table["base_vs_instruct"][0]["delta"] == pytest.approx(0.05)

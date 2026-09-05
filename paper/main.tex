@@ -71,10 +71,14 @@ agree closely (cosine $\geq 0.83$ at every layer) under two independent
 operationalizations; a global steering direction shifts held-out
 behavior as effectively as domain-specific ones; and probes transfer
 across domains almost perfectly. It fails partially for honesty, where
-early-layer directions diverge sharply (mean cosine 0.52; the math domain is
-near-orthogonal to all others), reconverge only partially with depth, and
-resist cross-domain probing, which marks the fragmentation as functional
-rather than a surface artifact. Contrary to our pre-registered hypothesis, alignment does not
+per-domain directions diverge in early and middle layers, reconverge only
+partially with depth, and resist cross-domain probing, indicating that the
+divergence is not merely a difference in surface statistics. We report these
+cosines against two references that a raw comparison to a pooled direction
+lacks: a leave-one-domain-out global direction, since a domain contributes to
+the pooled one and $k$ orthogonal domains would still score $1/\sqrt{k}$, and
+a within-domain split-half noise floor estimated at matched sample size, which
+separates genuine divergence from estimation error. Contrary to our pre-registered hypothesis, alignment does not
 amplify this fragmentation; if anything it slightly consolidates directions.
 Finally, strong refusal fragmentation that we observed in a smaller pilot
 model did not replicate on the primary model under identical data,
@@ -129,11 +133,15 @@ universal: per-domain and global directions agree with cosine similarity
 0.83--0.94 across all layers, under both operationalizations, and probes
 trained on one domain transfer to the others at up to 0.98 accuracy
 (\S\ref{sec:results-refusal}). \textbf{(2)}~Honesty is not. Early- and
-middle-layer directions fragment sharply (mean cosine 0.52 at layer~5, with
-the math domain near-orthogonal to every other), reconverging only partially
-by the output layers, and the fragmentation is functional rather than
-lexical: honesty probes fail to transfer across domains
-(\S\ref{sec:results-honesty}). \textbf{(3)}~The
+middle-layer directions diverge, reconverging only partially
+by the output layers, and the divergence is not merely lexical: honesty
+probes fail to transfer across domains (\S\ref{sec:results-honesty}). We
+qualify this finding in two ways that the raw geometry cannot. Against a
+leave-one-domain-out global direction the effect is not an artifact of a
+domain contributing to the pooled direction it is compared with; against a
+within-domain split-half noise floor at matched sample size, part of the
+early-layer divergence reflects estimation error rather than geometry
+(\S\ref{sec:results-controls}). \textbf{(3)}~The
 geometry is behaviorally real: a single global refusal direction steers
 held-out prompts as effectively as each domain's own direction, with no
 systematic per-domain advantage (\S\ref{sec:results-steering}). \textbf{(4)}~Alignment does not
@@ -162,9 +170,40 @@ demonstrated reading and control across a broad range of concepts.
 linearly in middle-layer activations, and \citet{hernandez2023linearity}
 found that many relational mappings are well approximated by linear
 transformations. This literature generally extracts one direction per
-concept per model and evaluates it in-distribution; the cross-domain
-generalization of a single direction, the property our study isolates, is
-usually assumed rather than measured.
+concept per model and evaluates it in-distribution.
+
+\paragraph{Generalization and reliability of extracted directions.}
+The assumption that an extracted direction is valid beyond its extraction
+distribution has been questioned before, and we do not claim otherwise.
+\citet{tan2024analysing} measure the generalisation and reliability of
+steering vectors across many concepts and models, and find both to be
+highly variable: steerability differs sharply by concept, and vectors that
+work in-distribution frequently fail out of it. On the honesty side,
+\citet{levinstein2024still} show that probes trained to detect truthfulness
+fail to generalize across distributions, and argue that this reflects a
+conceptual difficulty in isolating truth rather than a fixable engineering
+problem. Our honesty result is consistent with both findings and should be
+read as converging evidence rather than as a first observation.
+
+What our design adds is the controlled attribution. Prior work varies the
+concept, the dataset, and often the model together, so a generalization
+failure cannot be assigned to any one of them. We hold the concept, the
+source dataset, the pair schema, and the model fixed, and vary only the
+semantic domain, which turns generalization into a per-concept, per-layer,
+per-model measurement with a stated within-domain noise floor
+(Section~\ref{sec:controls}). We also separate the two explanations that a
+raw cosine cannot distinguish: directions that genuinely differ, and
+directions too noisily estimated to compare.
+
+\paragraph{Low-dimensional structure in truth representations.}
+\citet{burger2024truth} report that truth is carried by a shared
+two-dimensional subspace, separating a general truth direction from a
+polarity-sensitive one, and that accounting for this structure makes lie
+detection robust across datasets. This offers a specific alternative reading
+of divergent per-domain honesty directions: domains may share a subspace
+while differing in where they sit inside it, in which case a rank-1 cosine
+would report shared structure as fragmentation. We test this directly on our
+own activations in Section~\ref{sec:subspace} rather than leaving it open.
 
 \paragraph{Activation steering.}
 Adding a scaled direction to the residual stream at inference time shifts
@@ -217,6 +256,34 @@ pairs a question with its best truthful answer (positive) and a plausible
 falsehood (negative); activations are read from the concatenation of the
 shared question and each response, so the question itself cancels in the
 contrast and the measured difference isolates the response.
+
+\paragraph{What the honesty contrast does and does not isolate.}
+This construction contrasts a true against a false answer, and that is a
+weaker operationalization of honesty than the term suggests. The computation
+that separates the two answers plausibly differs by domain: in
+\textit{math} the contrast may largely track correct versus incorrect
+arithmetic; in \textit{factual trivia} it may track successful knowledge
+retrieval; in \textit{politics/opinion} and \textit{personal advice},
+where there is often no single checkable fact, it may track hedging,
+calibration, or stance. A truthful answer also differs from a false one in
+truth value, in factual correctness, and in whatever domain-specific task the
+question poses, and our contrast does not separate these.
+
+The consequence for our claim is specific and we state it plainly: a low
+cosine between two per-domain honesty directions does \emph{not} by itself
+show that one concept of honesty is encoded differently across domains. It is
+equally consistent with the directions picking out different underlying
+computations, in which case they were never estimates of a common quantity
+and their disagreement is expected rather than informative. Distinguishing
+these two readings would require a contrast that holds the task constant
+while varying only truthfulness, for instance a model instructed to answer
+the same question honestly or deceptively, so that both sides require the
+same underlying computation. We do not run that experiment here, and we
+therefore frame the honesty result as fragmentation of \emph{the extracted
+direction} rather than of an established single concept. Refusal is less
+exposed to this objection: its four domains pose the same task, declining a
+harmful request, and differ in subject matter rather than in the computation
+the response requires.
 
 \paragraph{Refusal.}
 We construct the refusal contrast in two independent ways. The
@@ -295,6 +362,77 @@ lexical features, we additionally report the mean cosine over the final
 third of the network, where representations feed the unembedding and
 behavior is read out.
 
+\subsection{Controls for the Dispersion Statistic}
+\label{sec:controls}
+
+A cosine between a per-domain direction and a global direction is not by
+itself interpretable, for three reasons that we control explicitly.
+
+\paragraph{The global direction contains the domain it is compared against.}
+Because the global direction pools all $k$ domains, each per-domain direction
+is correlated with it partly by construction. The scale of this artifact is
+easy to state: $k$ equal-magnitude, mutually \emph{orthogonal} domain
+directions each have cosine $1/\sqrt{k}$ with their normalized sum, which is
+$0.5$ at $k{=}4$. A raw pooled-global cosine near $0.5$ is therefore
+indistinguishable from complete fragmentation. We accordingly report
+\textbf{leave-one-domain-out} (LODO) cosines throughout: each domain's
+direction is compared against a global direction estimated from the other
+three domains only, so no shared data inflates the value. Under LODO, four
+orthogonal domains score $0$ rather than $0.5$. We report pooled-global
+cosines only alongside LODO ones, for comparability with prior work.
+
+\paragraph{Cross-domain cosine needs a within-domain reference.}
+How similar two directions from different domains \emph{should} be depends on
+how similar two independent estimates of the \emph{same} domain are. We
+therefore estimate a within-domain noise ceiling by repeatedly splitting each
+domain's pairs into two disjoint halves ($200$ splits), computing a direction
+from each half, and recording their cosine. We then recompute cross-domain
+cosines with each direction estimated from the \emph{same number of pairs} as
+one half. Matching the per-estimate sample size matters because cosine
+estimation error grows quickly as the number of pairs falls relative to
+$d_{\text{model}}$; without the match, a small domain would look fragmented
+purely for being small. We report the gap between the within- and
+cross-domain distributions, which is zero when directions from different
+domains agree as well as two estimates of one domain.
+
+\paragraph{An early-layer direction may be noise.}
+If a concept is not linearly encoded at a given depth, a low cosine reflects
+the absence of a signal rather than the fragmentation of one. Before
+interpreting any layer's geometry we therefore establish that a direction
+exists there, using two tests. First, a sign-flip permutation null: we flip
+the positive/negative assignment of each pair independently with probability
+$0.5$ and recompute $\lVert\Delta\mu\rVert$, which preserves the pairing and
+the activation marginals while destroying the systematic contrast, giving a
+null distribution of $500$ draws against which the observed separation is
+tested. Second, a \emph{cross-validated} projection AUC: the direction is fit
+on training folds and scored only on a held-out fold ($5$-fold). The
+cross-validation is essential rather than cosmetic. With
+$d_{\text{model}} \geq n$, a difference-of-means direction fits the noise, and
+an in-sample AUC runs far above chance even for activations with no concept
+signal at all; in a synthetic check at $n{=}120$, $d{=}128$ it reaches $0.86$
+on pure noise, against $0.5$ under cross-validation. Layers that fail these
+tests are reported as uninterpretable rather than as fragmented.
+
+\subsection{Shared-Subspace Analysis}
+\label{sec:subspace}
+
+Low pairwise cosines are consistent with domains sharing a low-dimensional
+subspace while occupying different positions within it, the structure
+\citet{burger2024truth} report for truth. We test this at three levels of
+stringency. We first take the singular spectrum of the stacked per-domain
+directions, summarizing it by the fraction of spectral mass at rank~$1$ and
+rank~$2$ and by the participation ratio, an effective dimensionality that
+requires no cutoff and runs from $1$ (one shared direction) to $k$ (mutually
+orthogonal). We then compare the top-$2$ subspaces of each domain's
+mean-centered per-pair contrast vectors via principal angles, which asks
+whether domains excite overlapping subspaces even where their mean directions
+diverge. Finally, and most stringently, we run a leave-one-domain-out
+subspace test: we build a rank-$k$ subspace from the other domains' directions
+and measure the squared projection of the held-out direction onto it. Since a
+higher-rank subspace captures any vector more easily, we report the chance
+baseline for a random rank-$k$ subspace in $d$ dimensions, $k/d$, and judge
+the result against that rather than against zero.
+
 \subsection{Cross-Domain Probing}
 \label{sec:probe-method}
 
@@ -311,7 +449,23 @@ activations for a pair are never split across train and test. High
 off-diagonal accuracy despite low direction cosines would mean the domains
 share a decodable concept subspace and the geometric fragmentation is
 superficial; off-diagonal accuracy near chance, with high on-diagonal
-accuracy, would mean the fragmentation is functional. We report this
+accuracy, would mean the divergence is not merely a difference in surface
+statistics.
+
+We are deliberate about how much this test can establish. A probe trained on
+one domain and evaluated on another asks whether \emph{that particular
+linear decision boundary} transfers out of distribution. Poor transfer is
+consistent with at least two situations: the domains may encode the concept
+along genuinely different axes, or they may share a weaker common feature
+that the probe declines to use because a stronger domain-specific feature
+predicts the training domain better. The second is a real possibility, and
+low off-diagonal accuracy therefore does \emph{not} license the conclusion
+that no shared honesty representation exists, nor that the domains carry
+disjoint information. It rules out only the weakest explanation, that the
+directions differ while the underlying decodable content is identical. We
+accordingly treat the probe result as evidence that the divergence has
+downstream consequences for a standard readout method, and test the
+shared-subspace possibility separately in Section~\ref{sec:subspace}. We report this
 transfer matrix for both concepts.
 
 \subsection{Behavioral Steering}
@@ -586,8 +740,21 @@ vs.\ 0.769 Instruct). Only 10 of 36 layers move in the predicted direction,
 none substantially. Base--Instruct differences in individual per-domain
 cosines grow with depth (up to 0.20), the expected signature of a fine-tune,
 confirming that the two checkpoints genuinely diverge; alignment simply does
-not move them apart along the axis we hypothesized. If anything, preference
-tuning appears to \emph{consolidate} concept representations.
+not move them apart along the axis we hypothesized.
+
+We are careful about the scope of this result. What we compare is two
+released checkpoints of one model, Qwen~2.5~3B Base and Instruct. Those
+checkpoints differ by the whole of the vendor's post-training pipeline, whose
+composition, data, and objectives are not public, and which comprises
+supervised fine-tuning as well as preference optimization. We therefore
+cannot attribute the effect to RLHF specifically, nor separate preference
+tuning from instruction tuning, nor rule out that the difference reflects
+choices particular to this vendor's recipe. The defensible statement is
+narrow: \emph{for this model pair, post-training does not increase the
+angular dispersion of concept directions, and slightly decreases it}. Whether
+that holds for alignment in general is a question our design cannot reach,
+which is why we run the comparison across every base/instruct pair in
+Section~\ref{sec:results-replication} rather than generalizing from one.
 
 \subsection{A Cautionary Non-Replication}
 \label{sec:results-pilot}
@@ -663,6 +830,22 @@ is a question our compute budget could not answer.
 
 
 % ============================================================
+\section{Conclusion}
+\label{sec:conclusion}
+
+We set out to show that concept directions fragment across semantic domains
+and that alignment makes it worse. Under controls strict enough to trust,
+refusal turned out to be universal, not fragmented; honesty fragmented but
+only in part, and mainly in early and middle layers; alignment did not make
+either worse; and a dramatic fragmentation result from our own pilot model
+did not generalize to the primary model. The constructive summary is a scoping rule: a concept direction is universal
+to the extent that the concept is a unified behavior rather than
+domain-entangled content, and that extent has to be measured for each
+concept, depth, and model rather than assumed. The controlled comparison
+that yields such measurements costs little beyond the extraction runs
+practitioners already perform, and we release our pipeline so that reporting
+one becomes the path of least resistance.
+
 \section{Limitations}
 \label{sec:limitations}
 
@@ -693,22 +876,6 @@ further strengthen this leg of the study.
 
 
 % ============================================================
-\section{Conclusion}
-\label{sec:conclusion}
-
-We set out to show that concept directions fragment across semantic domains
-and that alignment makes it worse. Under controls strict enough to trust,
-refusal turned out to be universal, not fragmented; honesty fragmented but
-only in part, and mainly in early and middle layers; alignment did not make
-either worse; and a dramatic fragmentation result from our own pilot model
-did not generalize to the primary model. The constructive summary is a scoping rule: a concept direction is universal
-to the extent that the concept is a unified behavior rather than
-domain-entangled content, and that extent has to be measured for each
-concept, depth, and model rather than assumed. The controlled comparison
-that yields such measurements costs little beyond the extraction runs
-practitioners already perform, and we release our pipeline so that reporting
-one becomes the path of least resistance.
-
 \section*{Data and Code Availability}
 
 All prompt-pair data, the extraction and analysis pipeline (difference-of-
