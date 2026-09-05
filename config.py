@@ -10,7 +10,7 @@ Usage:
 
 from pathlib import Path
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional
+from typing import Dict, List, Optional, Tuple
 
 
 # ============================================================
@@ -107,12 +107,155 @@ QWEN_25_3B_BASE = ModelConfig(
     quantization="4bit",
 )
 
+# ------------------------------------------------------------
+# Replication sweep (Phase 3)
+#
+# Two orthogonal axes, so that a finding can be attributed to scale or to
+# family rather than to "the model we happened to run":
+#
+#   Scale axis  — Qwen 2.5 at 0.5B / 1.5B / 3B / 7B, base and instruct.
+#     Holds architecture, tokenizer, and pretraining recipe fixed and varies
+#     only capacity. This is what the pilot non-replication (Section 5.5)
+#     leaves open, so it is the axis that matters most.
+#
+#   Family axis — Gemma 2, Llama 3.2, Qwen 2.5 at comparable scale (~2-3B).
+#     Holds capacity roughly fixed and varies architecture and data.
+#
+# Every entry is a base/instruct pair: the Base-vs-Instruct dispersion
+# comparison is run within each pair, never across families.
+# ------------------------------------------------------------
+
+QWEN_25_05B_BASE = ModelConfig(
+    name="Qwen 2.5 0.5B Base",
+    hf_id="Qwen/Qwen2.5-0.5B",
+    transformer_lens_name="Qwen/Qwen2.5-0.5B",
+    n_layers=24,
+    d_model=896,
+    is_instruct=False,
+)
+
+QWEN_25_05B_INSTRUCT = ModelConfig(
+    name="Qwen 2.5 0.5B Instruct",
+    hf_id="Qwen/Qwen2.5-0.5B-Instruct",
+    transformer_lens_name="Qwen/Qwen2.5-0.5B-Instruct",
+    n_layers=24,
+    d_model=896,
+    is_instruct=True,
+)
+
+QWEN_25_15B_BASE = ModelConfig(
+    name="Qwen 2.5 1.5B Base",
+    hf_id="Qwen/Qwen2.5-1.5B",
+    transformer_lens_name="Qwen/Qwen2.5-1.5B",
+    n_layers=28,
+    d_model=1536,
+    is_instruct=False,
+)
+
+QWEN_25_15B_INSTRUCT = ModelConfig(
+    name="Qwen 2.5 1.5B Instruct",
+    hf_id="Qwen/Qwen2.5-1.5B-Instruct",
+    transformer_lens_name="Qwen/Qwen2.5-1.5B-Instruct",
+    n_layers=28,
+    d_model=1536,
+    is_instruct=True,
+)
+
+QWEN_25_7B_BASE = ModelConfig(
+    name="Qwen 2.5 7B Base",
+    hf_id="Qwen/Qwen2.5-7B",
+    transformer_lens_name="Qwen/Qwen2.5-7B",
+    n_layers=28,
+    d_model=3584,
+    is_instruct=False,
+    quantization="4bit",
+)
+
+QWEN_25_7B_INSTRUCT = ModelConfig(
+    name="Qwen 2.5 7B Instruct",
+    hf_id="Qwen/Qwen2.5-7B-Instruct",
+    transformer_lens_name="Qwen/Qwen2.5-7B-Instruct",
+    n_layers=28,
+    d_model=3584,
+    is_instruct=True,
+    quantization="4bit",
+)
+
+LLAMA_32_1B_BASE = ModelConfig(
+    name="Llama 3.2 1B Base",
+    hf_id="meta-llama/Llama-3.2-1B",
+    transformer_lens_name="meta-llama/Llama-3.2-1B",
+    n_layers=16,
+    d_model=2048,
+    is_instruct=False,
+)
+
+LLAMA_32_1B_INSTRUCT = ModelConfig(
+    name="Llama 3.2 1B Instruct",
+    hf_id="meta-llama/Llama-3.2-1B-Instruct",
+    transformer_lens_name="meta-llama/Llama-3.2-1B-Instruct",
+    n_layers=16,
+    d_model=2048,
+    is_instruct=True,
+)
+
+LLAMA_32_3B_BASE = ModelConfig(
+    name="Llama 3.2 3B Base",
+    hf_id="meta-llama/Llama-3.2-3B",
+    transformer_lens_name="meta-llama/Llama-3.2-3B",
+    n_layers=28,
+    d_model=3072,
+    is_instruct=False,
+    quantization="4bit",
+)
+
+LLAMA_32_3B_INSTRUCT = ModelConfig(
+    name="Llama 3.2 3B Instruct",
+    hf_id="meta-llama/Llama-3.2-3B-Instruct",
+    transformer_lens_name="meta-llama/Llama-3.2-3B-Instruct",
+    n_layers=28,
+    d_model=3072,
+    is_instruct=True,
+    quantization="4bit",
+)
+
 MODELS: Dict[str, ModelConfig] = {
     "gemma-2-2b": GEMMA_2_2B_BASE,
     "gemma-2-2b-it": GEMMA_2_2B_INSTRUCT,
     "qwen-2.5-3b-instruct": QWEN_25_3B_INSTRUCT,
     "qwen-2.5-3b": QWEN_25_3B_BASE,
+    # Replication sweep
+    "qwen-2.5-0.5b": QWEN_25_05B_BASE,
+    "qwen-2.5-0.5b-instruct": QWEN_25_05B_INSTRUCT,
+    "qwen-2.5-1.5b": QWEN_25_15B_BASE,
+    "qwen-2.5-1.5b-instruct": QWEN_25_15B_INSTRUCT,
+    "qwen-2.5-7b": QWEN_25_7B_BASE,
+    "qwen-2.5-7b-instruct": QWEN_25_7B_INSTRUCT,
+    "llama-3.2-1b": LLAMA_32_1B_BASE,
+    "llama-3.2-1b-instruct": LLAMA_32_1B_INSTRUCT,
+    "llama-3.2-3b": LLAMA_32_3B_BASE,
+    "llama-3.2-3b-instruct": LLAMA_32_3B_INSTRUCT,
 }
+
+# Base -> Instruct pairs for the alignment comparison. Keys are base model
+# names; the comparison is only ever run within a pair.
+BASE_INSTRUCT_PAIRS: List[Tuple[str, str]] = [
+    ("gemma-2-2b", "gemma-2-2b-it"),
+    ("qwen-2.5-0.5b", "qwen-2.5-0.5b-instruct"),
+    ("qwen-2.5-1.5b", "qwen-2.5-1.5b-instruct"),
+    ("qwen-2.5-3b", "qwen-2.5-3b-instruct"),
+    ("qwen-2.5-7b", "qwen-2.5-7b-instruct"),
+    ("llama-3.2-1b", "llama-3.2-1b-instruct"),
+    ("llama-3.2-3b", "llama-3.2-3b-instruct"),
+]
+
+# The two sweep axes, referenced by the replication driver and the paper.
+SCALE_LADDER: List[str] = [
+    "qwen-2.5-0.5b", "qwen-2.5-1.5b", "qwen-2.5-3b", "qwen-2.5-7b",
+]
+FAMILY_SET: List[str] = [
+    "gemma-2-2b", "llama-3.2-3b", "qwen-2.5-3b",
+]
 
 # Default model for pilot runs
 DEFAULT_MODEL = "gemma-2-2b-it"
