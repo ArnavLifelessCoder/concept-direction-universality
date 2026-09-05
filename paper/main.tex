@@ -32,6 +32,19 @@
 \usepackage{subcaption}
 \usepackage{multirow}
 
+% === Placeholder machinery (REMOVE BEFORE SUBMISSION) ===
+% \PH{...} marks a number awaiting the re-run. It renders in red and bracketed
+% so a half-filled draft is obvious on sight rather than only in the source.
+% Find every remaining one with:  grep -n '\\PH{' paper/main.tex
+% When the last one is gone, delete this block and the \phnote definition.
+%
+% To prove none are left, temporarily switch \PH to \newcommand{\PH}[1]{%
+%   \GenericError{}{PLACEHOLDER REMAINS}{}{}} and compile: LaTeX will abort.
+% (xcolor is already loaded with the standard packages above.)
+\newcommand{\PH}[1]{\textcolor{red}{\textbf{[#1]}}}
+% \phnote{...} is an editorial note: which JSON field fills the nearby numbers.
+\newcommand{\phnote}[1]{\textcolor{red}{\footnotesize\textit{[NOTE: #1]}}}
+
 % === Custom macros ===
 \newcommand{\cosim}{\text{cos-sim}}
 \newcommand{\dmodel}{d_{\text{model}}}
@@ -569,6 +582,101 @@ manifests, and validation tooling are released with the paper.
   \label{tab:dispersion}
 \end{table}
 
+\subsection{What the Directions Support: Reliability and the Corrected Baseline}
+\label{sec:results-controls}
+
+% ============================================================
+% SCAFFOLD -- fill from results/replication/replication_<concept>_<model>.json
+%   summary.within_domain_reliability.{mean,min,max}
+%   summary.gated_layers / summary.n_layers_interpretable
+%   summary.lodo_cosine.{mean,min,max}
+%   summary.cross_domain_cosine_matched.mean
+%   summary.fragmentation_gap.{mean,min,max}
+%   controls.<layer>.permutation.<domain>.p_value
+%   controls.<layer>.effect_size.<domain>.auc_cv
+%
+% WRITE THIS SUBSECTION FIRST. It decides what the rest of Section 5 is
+% allowed to claim. If most early layers are gated, delete the early-layer
+% fragmentation claim from Sections 5.3 and 1 rather than softening it.
+% ============================================================
+
+Because a per-domain direction contributes to the pooled global direction it
+is scored against, and because a cosine between two noisy estimates is not
+comparable to a cosine between two clean ones, we report three controls before
+interpreting any geometry (\S\ref{sec:controls}).
+
+\paragraph{Where a direction exists at all.}
+Within-domain split-half reliability separates layers that carry a measurable
+concept direction from layers where the difference-of-means vector is noise.
+For honesty, reliability is \PH{min}--\PH{max} across layers, and
+\PH{$n$} of \PH{$L$} layers fall at or below our floor of 0.2; for refusal,
+\PH{min}--\PH{max} with \PH{$n$} gated.
+\phnote{summary.within\_domain\_reliability and summary.gated\_layers}
+The sign-flip permutation null agrees: the observed $\lVert\Delta\mu\rVert$
+exceeds the null at $p < \PH{p}$ for layers \PH{range}, and fails to reject
+for \PH{layers}. Cross-validated projection AUC on the same layers is
+\PH{value} against a chance level of 0.5.
+\phnote{controls.<layer>.permutation and .effect\_size.auc\_cv}
+We report geometry only for layers that clear both tests, and mark the rest as
+uninterpretable rather than fragmented.
+
+The two smallest domains are the exposed cases. Honesty \textit{math} has 59
+pairs and refusal \textit{privacy} 29, so each split-half estimate rests on
+roughly 29 and 14 pairs respectively against $\dmodel = 2048$. Math reliability
+is \PH{value} and privacy \PH{value}.
+\phnote{controls.<layer>.within\_domain.<domain>.mean}
+% IF math reliability is at or below the floor: the "math is near-orthogonal
+% to all other domains" claim must be REMOVED from the abstract, the
+% introduction, and Section 5.3 -- not hedged. An unreliable direction cannot
+% be near-orthogonal to anything; it is simply unmeasured. Say so explicitly
+% and cite it as the reason the domain was expanded or dropped.
+
+\paragraph{The corrected universality statistic.}
+Table~\ref{tab:controls} reports leave-one-domain-out cosines beside the
+pooled-global values. The correction matters most where the pooled value sits
+near $1/\sqrt{k}$: our previously reported honesty minimum of 0.522 at $k{=}4$
+is within \PH{value} of the 0.5 that four mutually orthogonal directions would
+produce, and is therefore uninformative on its own. Under LODO, honesty falls
+to \PH{value} and refusal to \PH{value}.
+\phnote{summary.lodo\_cosine; compare against Table~\ref{tab:dispersion}}
+
+\paragraph{Fragmentation against the noise floor.}
+The quantity that actually answers the research question is the gap between
+the within-domain reliability ceiling and the cross-domain cosine estimated at
+the same per-estimate sample size. For honesty this gap is \PH{value}
+(\PH{CI}); for refusal, \PH{value} (\PH{CI}).
+\phnote{summary.fragmentation\_gap and controls.<layer>.cross\_domain\_ci}
+A gap near zero means directions from different domains agree as well as two
+independent estimates of one domain, which is the operational definition of no
+detectable fragmentation.
+
+\begin{table}[t]
+  \centering
+  \small
+  \begin{tabular}{lcccc}
+    \toprule
+    \textbf{Condition} & \textbf{Pooled} & \textbf{LODO} & \textbf{Within} & \textbf{Gap} \\
+    \midrule
+    Refusal (prompt)   & 0.837 & \PH{x} & \PH{x} & \PH{x} \\
+    Refusal (response) & 0.854 & \PH{x} & \PH{x} & \PH{x} \\
+    Honesty            & 0.522 & \PH{x} & \PH{x} & \PH{x} \\
+    \midrule
+    \multicolumn{5}{l}{\textit{Base checkpoint}} \\
+    Refusal (prompt)   & 0.834 & \PH{x} & \PH{x} & \PH{x} \\
+    Honesty            & 0.522 & \PH{x} & \PH{x} & \PH{x} \\
+    \bottomrule
+  \end{tabular}
+  \caption{Controls on Qwen~2.5~3B, at the most dispersed interpretable layer.
+  \textbf{Pooled} is the minimum mean cosine to a global direction built from
+  all four domains, as previously reported; four mutually orthogonal domains
+  would still score 0.5 here. \textbf{LODO} rebuilds the global direction from
+  the other three domains only. \textbf{Within} is the split-half reliability
+  ceiling, and \textbf{Gap} is that ceiling minus the cross-domain cosine at
+  matched sample size: it is the fragmentation estimate that survives both
+  corrections.}
+  \label{tab:controls}
+\end{table}
+
 \subsection{Refusal Directions Are Largely Universal}
 \label{sec:results-refusal}
 
@@ -678,46 +786,154 @@ this indicates that honesty fragmentation is functional rather than merely
 lexical: universality is a property of particular concepts at particular
 depths, not of concept directions in general.
 
-\subsection{Steering Confirms the Geometry}
+\subsection{Is Honesty Fragmented, or Low-Rank?}
+\label{sec:results-subspace}
+
+% ============================================================
+% SCAFFOLD -- fill from results/replication/replication_honesty_<model>.json
+%   subspace.<layer>.spectrum.{rank1,rank2,participation_ratio}
+%   subspace.<layer>.principal_angles.<"a|b">.{min_angle_deg,mean_cos}
+%   subspace.<layer>.lodo.per_rank.{1,2,3}.{mean,chance,above_chance}
+%
+% This subsection answers Reviewer 2's direct question. The decisive number is
+% lodo.per_rank.2.mean against its chance baseline (k/d), NOT the spectrum:
+% the spectrum is descriptive and cannot fail, since rank 2 of 4 directions
+% captures a lot by construction.
+% ============================================================
+
+Low pairwise cosines are consistent with two different geometries: domains may
+encode honesty along unrelated axes, or they may share a low-dimensional
+subspace and differ only in where they sit inside it. \citet{burger2024truth}
+report the latter for truth, with a two-dimensional structure that makes lie
+detection robust across datasets. The distinction matters for what our result
+means, so we test it on our own activations (\S\ref{sec:subspace}).
+
+\paragraph{Spectrum.}
+Stacking the four per-domain honesty directions, rank~1 captures \PH{value} of
+the spectral mass and rank~2 \PH{value}, with a participation ratio of
+\PH{value} (1 = one shared direction, 4 = mutually orthogonal).
+\phnote{subspace.<layer>.spectrum} We report this for completeness and do not
+lean on it: two components of four directions capture a large share by
+construction, so the spectrum alone cannot distinguish a shared plane from
+noise.
+
+\paragraph{Principal angles.}
+Comparing the top-2 subspaces of each domain's mean-centered contrast vectors,
+the smallest principal angle between domain pairs ranges \PH{min}--\PH{max}
+degrees.
+\phnote{subspace.<layer>.principal\_angles} Small angles would mean domains
+excite overlapping subspaces even where their mean directions diverge.
+
+\paragraph{The decisive test.}
+Building a rank-$k$ subspace from three domains and projecting the fourth into
+it, the held-out direction retains \PH{value} of its energy at $k{=}1$,
+\PH{value} at $k{=}2$, and \PH{value} at $k{=}3$, against chance baselines of
+$k/\dmodel$ = \PH{value}, \PH{value}, and \PH{value} for a random subspace of
+the same rank.
+\phnote{subspace.<layer>.lodo.per\_rank.<k>.\{mean,chance\}}
+
+% BRANCH -- pick one and delete the other:
+%
+% (A) IF rank-2 LODO projection is high (say >0.7) while rank-1 cosine is low:
+%     the finding is REFRAMED, and this is the better paper. Honesty is
+%     low-rank but not rank-1: the domains share a subspace, and the apparent
+%     fragmentation is an artifact of insisting on a single direction. Say
+%     that representation engineering's rank-1 assumption, not honesty itself,
+%     is what fails. Update the abstract, the introduction's finding (2), and
+%     the Discussion accordingly, and note this confirms and extends
+%     \citet{burger2024truth} under a controlled domain design.
+%
+% (B) IF rank-2 LODO projection stays near chance: the domains do not share a
+%     low-dimensional subspace, and the fragmentation survives the most
+%     generous reading available to it. This strengthens the original claim;
+%     say explicitly that the Burger et al. interpretation was tested and did
+%     not account for the result.
+
+\subsection{Steering: Dose-Response Rather Than a Single Point}
 \label{sec:results-steering}
 
-\begin{table}[t]
-  \centering
-  \small
-  \begin{tabular}{lccc}
-    \toprule
-    \textbf{Domain} & \textbf{Baseline} & \textbf{Global $\Delta$} & \textbf{Own $\Delta$} \\
-    \midrule
-    violence          & 0.95 & \phantom{$-$}0.00 & \phantom{$-$}0.00 \\
-    illegal activity  & 0.90 & $-$0.05 & $-$0.05 \\
-    medical/legal     & 0.50 & $-$0.15 & \phantom{$-$}0.00 \\
-    privacy           & 0.50 & $-$0.40 & $-$0.15 \\
-    \bottomrule
-  \end{tabular}
-  \caption{Behavioral steering on held-out harmful prompts (Qwen~2.5~3B
-  Instruct, layer 18, coefficient 4.0, $n{=}20$ per domain, one representative
-  run). Baseline is the unsteered refusal rate; $\Delta$ columns give the
-  change under steering with the global versus the domain's own direction.
-  The global direction is comparable to the domain-specific one throughout.}
-  \label{tab:steering}
-\end{table}
+% ============================================================
+% SCAFFOLD -- fill from results/steering_sweep_refusal_<model>.json and
+%                        results/steering_sweep_honesty_<model>.json
+%   summary."L<layer>_c<coeff>".{own_mean_effect,global_mean_effect,own_minus_global}
+%   summary._zero_coeff_control.max_abs_effect   <-- CHECK THIS FIRST
+%   cells[] for the per-domain curves
+%
+% CHECK THE ZERO-COEFFICIENT CONTROL BEFORE READING ANYTHING ELSE. It must be
+% ~0. A nonzero value means the steering hook leaked across conditions and
+% every number in the sweep is void.
+% ============================================================
 
-The second hypothesis, that global steering underperforms domain-specific
-steering, is not supported (Table~\ref{tab:steering}). In no domain does the
-own-domain direction steer systematically better than the global one; where
-the two differ, they differ by one or two prompts out of twenty, which is the
-resolution limit of this experiment. In the run shown, the global direction
-matches or exceeds the own-domain direction in every domain, and cross-domain
-directions transfer as well (privacy prompts are steered as strongly by the
-violence and illegal-activity directions as by the global one). A replication
-and a re-scoring of the generations with an instruction-tuned model as a
-refusal judge, rather than the keyword detector, move individual cells by a
-prompt or two but leave this picture intact: no per-domain direction shows a
-reliable advantage. We read the whole experiment cautiously, since absolute
-effects are modest at this coefficient and the violence domain is
-behaviorally immovable (baseline refusal 0.95, unchanged under every
-direction), but the absence of a per-domain steering advantage is what a
-universal refusal direction predicts.
+Our earlier steering experiment used one layer, one coefficient, and 20
+held-out prompts per domain. A refusal rate over 20 prompts moves in steps of
+0.05, so a null result at one setting cannot distinguish functionally
+interchangeable directions from a coefficient too small to separate them. We
+therefore sweep coefficient and intervention layer, and evaluate honesty as
+well as refusal (\S\ref{sec:steering-method}).
+
+\paragraph{Controls.}
+At coefficient 0 the measured effect is \PH{value}, confirming the
+intervention hooks do not leak across conditions.
+\phnote{summary.\_zero\_coeff\_control.max\_abs\_effect} Held-out prompts are
+disjoint from direction estimation in every domain, enforced rather than
+assumed; the overlap acknowledged in our earlier version is gone.
+
+\paragraph{Refusal.}
+Figure~\ref{fig:steering-sweep} shows the dose-response curves.
+Refusal rate falls monotonically with coefficient from \PH{value} at
+coefficient \PH{c} to \PH{value} at \PH{c}, confirming the direction is
+behaviorally live across its range rather than at one tuned setting. Averaged
+over domains, the own-domain and global curves differ by at most \PH{value}
+at any coefficient, and by \PH{value} at the coefficient of maximum effect.
+\phnote{summary."L<layer>\_c<coeff>".own\_minus\_global across the sweep}
+The null result of our earlier version therefore holds across the swept range,
+not merely at one point, which is the stronger claim the reviewers asked for.
+% IF a per-domain advantage DOES appear at some coefficient or depth: say so
+% plainly and retract hypothesis 2's "not supported" verdict. The finding
+% would be that interchangeability is coefficient-dependent, which is more
+% interesting than the null and directly contradicts our earlier report.
+
+\paragraph{Honesty.}
+Honesty had no behavioral validation in our earlier version, which is a gap
+given that honesty carries the fragmentation result. Using forced-choice truth
+preference on held-out items, steering with the global direction shifts
+preference by \PH{value} log-probability units (accuracy \PH{value} to
+\PH{value}), against \PH{value} for own-domain directions.
+\phnote{steering\_sweep\_honesty: cells[].\{effect,accuracy\_delta\}}
+% BRANCH:
+% (A) IF own-domain beats global for honesty while they tie for refusal, the
+%     geometry and the behavior agree and this becomes the paper's cleanest
+%     result: the concept that fragments geometrically also fragments
+%     behaviorally, and the one that does not, does not.
+% (B) IF they tie for honesty too, the geometric fragmentation does NOT have
+%     behavioral consequences at this intervention. Say that directly; it
+%     qualifies the paper's practical claim considerably and must reach the
+%     abstract and Discussion.
+This metric scores a preference between two supplied answers rather than free
+generation, so it is a weaker behavioral claim than the refusal experiment and
+we do not read it as equivalent.
+
+\begin{figure}[t]
+  \centering
+  % Generate with:
+  %   python -m src.visualization.steering_sweep_plot \
+  %       --report results/steering_sweep_refusal_<model>.json \
+  %       --output paper/figures/fig_steering_sweep.pdf
+  % Until it exists, a labelled box stands in so the document still compiles.
+  \IfFileExists{figures/fig_steering_sweep.pdf}{%
+    \includegraphics[width=\columnwidth]{figures/fig_steering_sweep.pdf}%
+  }{%
+    \fbox{\parbox[c][3.2cm][c]{0.93\columnwidth}{\centering
+      \textcolor{red}{\textbf{[FIGURE PENDING]}}\\[2pt]
+      \footnotesize fig\_steering\_sweep.pdf --- run
+      \texttt{src.visualization.steering\_sweep\_plot}}}%
+  }
+  \caption{Steering dose-response on held-out prompts, own-domain versus
+  global direction, across coefficients and intervention layers. Overlapping
+  curves indicate the two directions are functionally interchangeable across
+  the range rather than at a single tuned setting.}
+  \label{fig:steering-sweep}
+\end{figure}
 
 \subsection{RLHF Does Not Amplify Fragmentation}
 \label{sec:results-rlhf}
@@ -755,6 +971,86 @@ angular dispersion of concept directions, and slightly decreases it}. Whether
 that holds for alignment in general is a question our design cannot reach,
 which is why we run the comparison across every base/instruct pair in
 Section~\ref{sec:results-replication} rather than generalizing from one.
+
+\subsection{Replication Across Scale and Model Family}
+\label{sec:results-replication}
+
+% ============================================================
+% SCAFFOLD -- fill from results/replication/replication_summary.json
+%   rows[]                -> Table~\ref{tab:replication}
+%   scale_ladder[]        -> the capacity axis
+%   family_set[]          -> the architecture axis
+%   base_vs_instruct[]    -> the alignment claim, now over 7 pairs not 1
+%
+% Report LODO cosine and the matched-n gap, NOT pooled-global cosine.
+% Models whose activations were not extracted simply do not appear; the
+% driver handles a partial sweep, so write around whatever axis completed.
+% ============================================================
+
+Section~\ref{sec:results-pilot} shows that a fragmentation result can be
+specific to one model, which makes any single-model conclusion provisional,
+including ours. We therefore repeat the geometry analysis along two
+orthogonal axes: a scale ladder within Qwen~2.5 (0.5B, 1.5B, 3B, 7B), which
+holds architecture and pretraining fixed while varying capacity, and a family
+set at comparable scale (Gemma~2~2B, Llama~3.2~3B, Qwen~2.5~3B), which holds
+capacity roughly fixed while varying architecture and data. Every model is
+analyzed as a base/instruct pair, so the alignment comparison of
+\S\ref{sec:results-rlhf} runs within each pair rather than across families.
+
+\paragraph{Scale.}
+Honesty LODO cosine \PH{rises/falls/is flat} across the ladder, from
+\PH{value} at 0.5B to \PH{value} at 7B; refusal is \PH{value} to \PH{value}.
+\phnote{replication\_summary.scale\_ladder[].lodo\_cosine\_mean}
+% This axis is what the pilot non-replication actually leaves open. If
+% fragmentation decreases with scale, the honest reading is that our 3B
+% results describe small models and may not survive at deployment scale --
+% state that prominently rather than burying it.
+
+\paragraph{Family.}
+At comparable scale, \PH{describe the spread across Gemma, Llama, and Qwen}.
+\phnote{replication\_summary.family\_set[]}
+% If the three families disagree sharply, the paper's central claim becomes
+% "universality is model-specific and must be measured per model", which is
+% already the Conclusion's framing and would be strongly supported here.
+
+\paragraph{Alignment, across seven pairs.}
+Repeating the Base-versus-Instruct comparison within every pair gives a mean
+LODO delta of \PH{value} for honesty and \PH{value} for refusal, with
+\PH{$n$} of \PH{$N$} pairs moving in the consolidating direction.
+\phnote{replication\_summary.base\_vs\_instruct[].delta}
+This is the evidence that lets us say anything general about alignment; the
+single-pair result of \S\ref{sec:results-rlhf} does not.
+% IF the direction of the effect is inconsistent across pairs, hypothesis 3's
+% verdict must change from "not supported" to "no consistent effect", and the
+% abstract's "if anything it slightly consolidates directions" must go.
+
+\begin{table}[t]
+  \centering
+  \small
+  \begin{tabular}{llccc}
+    \toprule
+    \textbf{Model} & \textbf{Concept} & \textbf{LODO} & \textbf{Gap} & \textbf{Layers} \\
+    \midrule
+    \multicolumn{5}{l}{\textit{Scale ladder (Qwen 2.5)}} \\
+    0.5B & honesty & \PH{x} & \PH{x} & \PH{x} \\
+    1.5B & honesty & \PH{x} & \PH{x} & \PH{x} \\
+    3B   & honesty & \PH{x} & \PH{x} & \PH{x} \\
+    7B   & honesty & \PH{x} & \PH{x} & \PH{x} \\
+    \midrule
+    \multicolumn{5}{l}{\textit{Family (comparable scale)}} \\
+    Gemma 2 2B   & honesty & \PH{x} & \PH{x} & \PH{x} \\
+    Llama 3.2 3B & honesty & \PH{x} & \PH{x} & \PH{x} \\
+    Qwen 2.5 3B  & honesty & \PH{x} & \PH{x} & \PH{x} \\
+    \bottomrule
+  \end{tabular}
+  \caption{Replication across scale and family (base checkpoints; instruct
+  counterparts and the refusal concept in Appendix). \textbf{LODO} is the mean
+  leave-one-domain-out cosine over interpretable layers, \textbf{Gap} the
+  within-domain reliability ceiling minus the matched-$n$ cross-domain cosine,
+  and \textbf{Layers} the count of layers clearing the reliability floor out of
+  the model's total. Models are omitted where activations were not extracted.}
+  \label{tab:replication}
+\end{table}
 
 \subsection{A Cautionary Non-Replication}
 \label{sec:results-pilot}

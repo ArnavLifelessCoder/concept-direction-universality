@@ -517,3 +517,52 @@ class TestReliabilityGating:
         assert len(table["base_vs_instruct"]) == 1
         # positive delta => alignment consolidates
         assert table["base_vs_instruct"][0]["delta"] == pytest.approx(0.05)
+
+
+# ============================================================
+# Steering sweep aggregation
+# ============================================================
+
+class TestSweepAggregation:
+
+    def _cells(self):
+        cells = []
+        for layer in (12, 18):
+            for coeff in (0.0, 4.0):
+                for dom in ("a", "b"):
+                    for cond in ("own", "global", "cross:a", "cross:b"):
+                        cells.append({
+                            "layer": layer, "coeff": coeff, "domain": dom,
+                            "condition": cond, "metric": "refusal_rate",
+                            "effect": 0.0 if coeff == 0 else -0.2,
+                        })
+        return cells
+
+    def test_cross_conditions_collapse_to_one_series(self):
+        """cross:a and cross:b are one question, not two."""
+        from src.visualization.steering_sweep_plot import aggregate_cells
+        agg = aggregate_cells(self._cells())
+        assert sorted(agg[18]) == ["cross", "global", "own"]
+        # both cross sources, both domains -> 4 observations
+        assert agg[18]["cross"][4.0]["n"] == 4
+
+    def test_zero_coefficient_aggregates_to_zero(self):
+        from src.visualization.steering_sweep_plot import aggregate_cells
+        agg = aggregate_cells(self._cells())
+        assert agg[12]["own"][0.0]["mean"] == pytest.approx(0.0)
+
+    def test_nan_effects_are_dropped_not_propagated(self):
+        """One failed cell must not blank out the whole series."""
+        from src.visualization.steering_sweep_plot import aggregate_cells
+        cells = self._cells()
+        cells.append({"layer": 18, "coeff": 4.0, "domain": "c",
+                      "condition": "own", "effect": float("nan")})
+        agg = aggregate_cells(cells)
+        assert not np.isnan(agg[18]["own"][4.0]["mean"])
+
+    def test_single_observation_has_zero_sem(self):
+        from src.visualization.steering_sweep_plot import aggregate_cells
+        agg = aggregate_cells([{"layer": 1, "coeff": 2.0, "domain": "a",
+                                "condition": "own", "effect": -0.3}])
+        assert agg[1]["own"][2.0]["sem"] == 0.0
+        assert agg[1]["own"][2.0]["n"] == 1
